@@ -5,6 +5,8 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'drawing_point.dart';
 import 'glow_painter.dart';
+import 'package:showcaseview/showcaseview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +26,9 @@ class GlowDrawApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: Colors.black,
       ),
-      home: const DrawingScreen(),
+      home: ShowCaseWidget(
+        builder: (context) => const DrawingScreen(),
+      ),
     );
   }
 }
@@ -42,6 +46,13 @@ class _DrawingScreenState extends State<DrawingScreen> {
   double currentStrokeWidth = 8.0;
   double currentGlowSpread = 20.0;
 
+  // Showcase Keys
+  final GlobalKey _keyCanvas = GlobalKey();
+  final GlobalKey _keyColorPicker = GlobalKey();
+  final GlobalKey _keyUndo = GlobalKey();
+  final GlobalKey _keyClear = GlobalKey();
+  final GlobalKey _keySettings = GlobalKey();
+
   // UI Visibility State
   bool isUIVisible = true;
   Timer? _hideTimer;
@@ -51,6 +62,28 @@ class _DrawingScreenState extends State<DrawingScreen> {
     super.initState();
     WakelockPlus.enable();
     _startHideTimer();
+    _checkFirstRun();
+  }
+
+  Future<void> _checkFirstRun() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isFirstRun = prefs.getBool('is_first_run') ?? true;
+    if (isFirstRun) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          isUIVisible = true;
+        });
+        _hideTimer?.cancel(); // Don't hide during showcase
+        ShowCaseWidget.of(context).startShowCase([
+          _keyCanvas,
+          _keyColorPicker,
+          _keyUndo,
+          _keyClear,
+          _keySettings,
+        ]);
+      });
+      await prefs.setBool('is_first_run', false);
+    }
   }
 
   @override
@@ -106,34 +139,39 @@ class _DrawingScreenState extends State<DrawingScreen> {
       body: Stack(
         children: [
           // Drawing Canvas
-          GestureDetector(
-            onPanStart: (details) {
-              _showUI();
-              setState(() {
-                paths.add(DrawingPath(
-                  points: [details.localPosition],
-                ));
-              });
-            },
-            onPanUpdate: (details) {
-              setState(() {
-                if (paths.isNotEmpty) {
-                  paths.last.points.add(details.localPosition);
-                }
-              });
-            },
-            onPanEnd: (details) {
-              _startHideTimer();
-            },
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: GlowPainter(
-                  paths: paths,
-                  color: currentColor,
-                  strokeWidth: currentStrokeWidth,
-                  glowSpread: currentGlowSpread,
+          Showcase(
+            key: _keyCanvas,
+            title: 'Vùng vẽ',
+            description: 'Chạm và di chuyển để vẽ ánh sáng rực rỡ.',
+            child: GestureDetector(
+              onPanStart: (details) {
+                _showUI();
+                setState(() {
+                  paths.add(DrawingPath(
+                    points: [details.localPosition],
+                  ));
+                });
+              },
+              onPanUpdate: (details) {
+                setState(() {
+                  if (paths.isNotEmpty) {
+                    paths.last.points.add(details.localPosition);
+                  }
+                });
+              },
+              onPanEnd: (details) {
+                _startHideTimer();
+              },
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: GlowPainter(
+                    paths: paths,
+                    color: currentColor,
+                    strokeWidth: currentStrokeWidth,
+                    glowSpread: currentGlowSpread,
+                  ),
+                  size: Size.infinite,
                 ),
-                size: Size.infinite,
               ),
             ),
           ),
@@ -153,22 +191,28 @@ class _DrawingScreenState extends State<DrawingScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           // Color Indicator & Picker
-                          GestureDetector(
-                            onTap: _pickColor,
-                            child: Container(
-                              width: 50,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                color: currentColor,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: currentColor.withAlpha(200),
-                                    blurRadius: 10,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
+                          Showcase(
+                            key: _keyColorPicker,
+                            title: 'Chọn màu',
+                            description: 'Thay đổi màu sắc của ánh sáng.',
+                            targetShapeBorder: const CircleBorder(),
+                            child: GestureDetector(
+                              onTap: _pickColor,
+                              child: Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  color: currentColor,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: currentColor.withAlpha(200),
+                                      blurRadius: 10,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -176,22 +220,32 @@ class _DrawingScreenState extends State<DrawingScreen> {
                           // Action Buttons
                           Row(
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.undo, color: Colors.white),
-                                onPressed: () {
-                                  if (paths.isNotEmpty) {
-                                    setState(() => paths.removeLast());
-                                  }
-                                  _showUI();
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_sweep, color: Colors.white),
-                                onPressed: () {
-                                  setState(() => paths.clear());
-                                  _showUI();
-                                },
-                              ),
+                                Showcase(
+                                  key: _keyUndo,
+                                  title: 'Hoàn tác',
+                                  description: 'Xóa nét vẽ vừa rồi.',
+                                  child: IconButton(
+                                    icon: const Icon(Icons.undo, color: Colors.white),
+                                    onPressed: () {
+                                      if (paths.isNotEmpty) {
+                                        setState(() => paths.removeLast());
+                                      }
+                                      _showUI();
+                                    },
+                                  ),
+                                ),
+                                Showcase(
+                                  key: _keyClear,
+                                  title: 'Xóa sạch',
+                                  description: 'Xóa toàn bộ màn hình để bắt đầu lại.',
+                                  child: IconButton(
+                                    icon: const Icon(Icons.delete_sweep, color: Colors.white),
+                                    onPressed: () {
+                                      setState(() => paths.clear());
+                                      _showUI();
+                                    },
+                                  ),
+                                ),
                             ],
                           ),
                         ],
@@ -199,39 +253,44 @@ class _DrawingScreenState extends State<DrawingScreen> {
                       const Spacer(),
                       
                       // Sliders for customization
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withAlpha(150),
-                          borderRadius: BorderRadius.circular(25),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('Độ dày nét vẽ', style: TextStyle(fontSize: 12)),
-                            Slider(
-                              value: currentStrokeWidth,
-                              min: 1.0,
-                              max: 20.0,
-                              activeColor: currentColor,
-                              onChanged: (val) {
-                                setState(() => currentStrokeWidth = val);
-                                _showUI();
-                              },
-                            ),
-                            const Text('Độ tỏa sáng (Glow)', style: TextStyle(fontSize: 12)),
-                            Slider(
-                              value: currentGlowSpread,
-                              min: 0.0,
-                              max: 50.0,
-                              activeColor: currentColor,
-                              onChanged: (val) {
-                                setState(() => currentGlowSpread = val);
-                                _showUI();
-                              },
-                            ),
-                          ],
+                      Showcase(
+                        key: _keySettings,
+                        title: 'Tùy chỉnh',
+                        description: 'Điều chỉnh độ dày và độ tỏa sáng của nét vẽ.',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(150),
+                            borderRadius: BorderRadius.circular(25),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Độ dày nét vẽ', style: TextStyle(fontSize: 12)),
+                              Slider(
+                                value: currentStrokeWidth,
+                                min: 1.0,
+                                max: 20.0,
+                                activeColor: currentColor,
+                                onChanged: (val) {
+                                  setState(() => currentStrokeWidth = val);
+                                  _showUI();
+                                },
+                              ),
+                              const Text('Độ tỏa sáng (Glow)', style: TextStyle(fontSize: 12)),
+                              Slider(
+                                value: currentGlowSpread,
+                                min: 0.0,
+                                max: 50.0,
+                                activeColor: currentColor,
+                                onChanged: (val) {
+                                  setState(() => currentGlowSpread = val);
+                                  _showUI();
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
